@@ -1,15 +1,40 @@
-from service import ExpenseService
+from services import ExpenseService, AccountService
 
 service = ExpenseService()
+account_service = AccountService()
 
 def main():
     print("Welcome to Money Flow!")
 
     while True:
-        print("\nadd, list, delete, edit, category, total, exit")
+        print("\ncreate, balance, topup, transfer, spend, list, delete, edit, category, total, exit")
         task = input("What would you like to do? ").strip()
 
-        if task == "add":
+        if task == "create":
+            source = input("How to name payment method? ").strip()
+            initial_balance = float(input("What is the initial balance? ").strip())
+            account_service.create_account(source, initial_balance)
+
+        elif task == "balance":
+            accounts = account_service.show_accounts()
+            if not accounts:
+                print("No accounts yet")
+            else:
+                for acc in accounts:
+                    print(f"{acc.name}: {acc.balance}")
+
+        elif task == "topup":
+            destination = input("Top up what? ")
+            amount = float(input("How much to add? "))
+            account_service.top_up_balance(destination, amount)
+
+        elif task == "transfer":
+            source = input("What would you like to transfer from? ").strip()
+            destination = input("What would you like to transfer to? ").strip()
+            amount = float(input("How much to transfer? "))
+            account_service.transfer(source, destination, amount)
+
+        elif task == "spend":
             amount = float(input("What is the amount you've spent? "))
             source = input("where does the money come from? ")
             category = input("What is the category? ")
@@ -18,7 +43,8 @@ def main():
         elif task == "list":
             expenses = service.load_expenses()
             for expense in expenses:
-                print(f'{expense.deal_id}|{expense.amount} {expense.category} {expense.money_source}|{expense.created_at}')
+                print(
+                    f'{expense.deal_id}|{expense.amount} {expense.category} {expense.money_source}|{expense.created_at}')
 
         elif task == "delete":
             service.delete(int(input("What is the deal's id? ")))
@@ -54,10 +80,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
-
-

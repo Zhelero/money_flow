@@ -1,4 +1,4 @@
-from models import Expense
+from models import Expense, Account
 import sqlite3
 
 DB_NAME = 'expenses.db'
@@ -20,6 +20,13 @@ class ExpenseRepository:
                 created_at TEXT
                 )
             ''')
+            conn.execute('''
+            CREATE TABLE IF NOT EXISTS accounts(
+                account_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                balance REAL
+            )
+            ''')
 
     def load(self):
         with self._connect() as conn:
@@ -29,6 +36,13 @@ class ExpenseRepository:
             Expense(deal_id=row[0], amount=row[1], money_source=row[2], category=row[3], created_at=row[4]) for row in rows
         ]
 
+    def get_by_id(self, deal_id):
+        with self._connect() as conn:
+            row = conn.execute(
+                'SELECT * FROM expenses WHERE deal_id=?',
+                (deal_id,)
+            ).fetchone()
+        return Expense(*row) if row else None
 
     def spend(self, expense: Expense):
         with self._connect() as conn:
@@ -52,9 +66,7 @@ class ExpenseRepository:
     def total(self, category=None):
         with self._connect() as conn:
             if category:
-                cursor = conn.execute(
-                    "SELECT SUM(amount) FROM expenses WHERE category = ?",
-                    (category,)
+                cursor = conn.execute("SELECT SUM(amount) FROM expenses WHERE category = ?", (category,)
                 )
             else:
                 cursor = conn.execute("SELECT SUM(amount) FROM expenses")
@@ -62,13 +74,42 @@ class ExpenseRepository:
             result = cursor.fetchone()[0]
             return result if result is not None else 0
 
-    def totals_by_category(self):
+
+class AccountRepository:
+    def _connect(self):
+        return sqlite3.connect(DB_NAME)
+
+    def create_account(self, account: Account):
+        try:
+            with self._connect() as conn:
+                conn.execute("""
+                INSERT INTO accounts (name, balance)
+                VALUES (?, ?)
+                """, (account.name, account.balance))
+        except sqlite3.IntegrityError:
+            raise ValueError("Account already exists. Choose a different name.")
+
+    def get_accounts(self):
         with self._connect() as conn:
-            cursor = conn.execute("""
-                SELECT category, SUM(amount)
-                FROM expenses
-                GROUP BY category
-            """)
-            return cursor.fetchall()
+            rows = conn.execute("SELECT * FROM accounts").fetchall()
+            return [Account(*row) for row in rows]
 
+    def update_balance(self, name, delta):
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT balance FROM accounts WHERE name = ?
+            """, (name,))
 
+            row = cur.fetchone()
+            if not row:
+                raise Exception('Account not found')
+
+            new_balance = row[0] + delta
+            if new_balance < 0:
+                raise ValueError("Not enough money")
+
+            conn.execute("""
+                            UPDATE accounts 
+                            SET balance = ?
+                            WHERE name = ?
+                        """, (new_balance, name))

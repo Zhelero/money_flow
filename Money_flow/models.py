@@ -17,5 +17,19 @@ class Expense:
             amount=amount,
             money_source=money_source,
             category=category,
-            created_at=datetime.now().strftime("%Y-%m-%d %H:%M")
+            created_at=datetime.now().isoformat(timespec="minutes")
+        )
+
+@dataclass
+class Account:
+    account_id: int | None
+    name: str
+    balance: float
+
+    @staticmethod
+    def create(name, balance):
+        return Account(
+            account_id=None,
+            name=name,
+            balance=balance
         )
