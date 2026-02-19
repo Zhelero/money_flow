@@ -1,4 +1,5 @@
 from models import Expense, Account
+from exceptions import (AccountNotFoundError, NotEnoughMoneyError, AccountAlreadyExistsError)
 import sqlite3
 
 DB_NAME = 'expenses.db'
@@ -87,7 +88,7 @@ class AccountRepository:
                 VALUES (?, ?)
                 """, (account.name, account.balance))
         except sqlite3.IntegrityError:
-            raise ValueError("Account already exists. Choose a different name.")
+            raise AccountAlreadyExistsError("Account already exists. Choose a different name.")
 
     def get_accounts(self):
         with self._connect() as conn:
@@ -102,11 +103,11 @@ class AccountRepository:
 
             row = cur.fetchone()
             if not row:
-                raise Exception('Account not found')
+                raise AccountNotFoundError('Account not found')
 
             new_balance = row[0] + delta
             if new_balance < 0:
-                raise ValueError("Not enough money")
+                raise NotEnoughMoneyError("Not enough money")
 
             conn.execute("""
                             UPDATE accounts 

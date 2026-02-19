@@ -1,5 +1,10 @@
+from exceptions import AccountNotFoundError, DealNotFoundError
 from repositories import ExpenseRepository, AccountRepository
 from models import Expense, Account
+#from exceptions import MoneyFlowError
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ExpenseService:
     def __init__(self):
@@ -7,17 +12,20 @@ class ExpenseService:
         self.account_repo = AccountRepository()
 
     def spend(self, amount, money_source, category):
+        logger.info(f"Attempting to spend {amount} from {money_source} at {category}")
         expense = Expense.create(amount, money_source, category)
         self.repo.spend(expense)
         self.account_repo.update_balance(money_source, -amount)
         print("Money spent")
+        logger.info(f"Money spent successfully")
 
     def load_expenses(self):
         return self.repo.load()
 
     def delete(self, deal_id):
-        self.repo.delete(deal_id)
-        print('Expense deleted')
+            self.repo.delete(deal_id)
+            print('Expense deleted')
+            logger.info(f"Expense {deal_id} deleted successfully")
 
     def edit(self, deal_id, amount=None, money_source=None, category=None):
         expenses = self.repo.load()
@@ -60,6 +68,7 @@ class AccountService:
         self.repo = AccountRepository()
 
     def create_account(self, name, balance):
+        logger.info(f"Attempting to create account {name} with balance {balance}")
         account = Account.create(name, balance)
         self.repo.create_account(account)
 
@@ -67,10 +76,13 @@ class AccountService:
         return self.repo.get_accounts()
 
     def transfer(self, from_acc, to_acc, amount):
+        logger.info(f"Transfer {amount} from {from_acc} to {to_acc}")
         self.repo.update_balance(from_acc, -amount)
         try:
             self.repo.update_balance(to_acc, amount)
-        except:
+            logger.info("Transfer completed")
+        except Exception:
+            logger.error("Transfer failed, rolling back", exc_info=True)
             self.repo.update_balance(from_acc, amount)
             raise
 
