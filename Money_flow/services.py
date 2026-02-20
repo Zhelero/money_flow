@@ -14,8 +14,7 @@ class ExpenseService:
     def spend(self, amount, money_source, category):
         logger.info(f"Attempting to spend {amount} from {money_source} at {category}")
         expense = Expense.create(amount, money_source, category)
-        self.repo.spend(expense)
-        self.account_repo.update_balance(money_source, -amount)
+        self.repo.spend_atomic(expense)
         print("Money spent")
         logger.info(f"Money spent successfully")
 
@@ -24,37 +23,30 @@ class ExpenseService:
 
     def delete(self, deal_id):
             self.repo.delete(deal_id)
-            print('Expense deleted')
-            logger.info(f"Expense {deal_id} deleted successfully")
 
     def edit(self, deal_id, amount=None, money_source=None, category=None):
-        expenses = self.repo.load()
-        for expense in expenses:
-            if deal_id == expense.deal_id:
-                old_amount = expense.amount
-                old_source = expense.money_source
+        expense = self.repo.get_by_id(deal_id)
 
-                if amount is not None:
-                    expense.amount = amount
+        old_amount = expense.amount
+        old_source = expense.money_source
 
-                if money_source is not None:
-                    expense.money_source = money_source
+        if amount is not None:
+            expense.amount = amount
 
-                if category is not None:
-                    expense.category = category
+        if money_source is not None:
+            expense.money_source = money_source
 
-                self.repo.update(expense)
-                if old_source == expense.money_source:
-                    delta = old_amount - expense.amount
-                    self.account_repo.update_balance(expense.money_source, delta)
-                else:
-                    self.account_repo.update_balance(old_source, old_amount)
-                    self.account_repo.update_balance(expense.money_source, -expense.amount)
+        if category is not None:
+            expense.category = category
 
-                print(f"Edited expense #{deal_id}")
-                return
+        self.repo.update(expense)
 
-        print("Expense not found")
+        if old_source == expense.money_source:
+            delta = old_amount - expense.amount
+            self.account_repo.update_balance(expense.money_source, delta)
+        else:
+            self.account_repo.update_balance(old_source, old_amount)
+            self.account_repo.update_balance(expense.money_source, -expense.amount)
 
     def by_category(self, category):
         return [e for e in self.repo.load() if e.category == category]

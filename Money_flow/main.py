@@ -2,14 +2,27 @@ from services import ExpenseService, AccountService
 from exceptions import MoneyFlowError
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    filename='moneyflow.log',
-    filemode='a',
-    format="%(asctime)s || %(name)s || %(levelname)s || %(message)s"
-)
+#Создание логгера приложения
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
-logger = logging.getLogger(__name__)
+#Формат логов
+formatter = logging.Formatter('%(asctime)s || %(name)s || %(levelname)s || %(message)s')
+
+#-----APP LOG(INFO и выше)-----
+app_handler = logging.FileHandler('app.log')
+app_handler.setLevel(logging.INFO)
+app_handler.setFormatter(formatter)
+
+#-----ERROR LOG-----
+error_handler = logging.FileHandler('error.log')
+error_handler.setLevel(logging.ERROR)
+error_handler.setFormatter(formatter)
+
+#Добавляем handlers к корневому логгеру
+logger.addHandler(app_handler)
+logger.addHandler(error_handler)
+
 
 service = ExpenseService()
 account_service = AccountService()
@@ -60,6 +73,7 @@ def main():
 
             elif task == "delete":
                 service.delete(int(input("What is the deal's id? ")))
+                print("Expense deleted")
 
             elif task == "edit":
                 deal_id = int(input("Deal id: "))

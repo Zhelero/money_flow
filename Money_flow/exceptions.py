@@ -12,3 +12,6 @@ class AccountAlreadyExistsError(MoneyFlowError):
 
 class DealNotFoundError(MoneyFlowError):
     pass
+
+class ExpenseNotFoundError(MoneyFlowError):
+    pass

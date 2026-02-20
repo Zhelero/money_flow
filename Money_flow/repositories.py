@@ -1,15 +1,14 @@
 from models import Expense, Account
-from exceptions import (AccountNotFoundError, NotEnoughMoneyError, AccountAlreadyExistsError)
+from exceptions import (AccountNotFoundError, NotEnoughMoneyError, AccountAlreadyExistsError, ExpenseNotFoundError)
 import sqlite3
-
-DB_NAME = 'expenses.db'
+from config import Config
 
 class ExpenseRepository:
     def __init__(self):
         self._init_db()
 
     def _connect(self):
-        return sqlite3.connect(DB_NAME)
+        return sqlite3.connect(Config.DB_NAME)
 
     def _init_db(self):
         with self._connect() as conn:
@@ -43,18 +42,65 @@ class ExpenseRepository:
                 'SELECT * FROM expenses WHERE deal_id=?',
                 (deal_id,)
             ).fetchone()
-        return Expense(*row) if row else None
 
-    def spend(self, expense: Expense):
+        if not row:
+            raise ExpenseNotFoundError("Expense not found")
+
+        return Expense(*row)
+
+#    def spend(self, expense: Expense):
         with self._connect() as conn:
             conn.execute("""
             INSERT INTO expenses (amount, money_source, category, created_at)
             VALUES (?, ?, ?, ?)
             """, (expense.amount, expense.money_source, expense.category, expense.created_at))
 
+    def spend_atomic(self, expense: Expense):
+        with self._connect() as conn:
+            try:
+                cursor = conn.execute(
+                    "SELECT balance FROM accounts WHERE name=?",
+                    expense.money_source
+                )
+                row = cursor.fetchone()
+
+                if not row:
+                    raise AccountNotFoundError("Account not found")
+
+                new_balance = row[0] - expense.amount
+                if new_balance < 0:
+                    raise NotEnoughMoneyError("Not enough money")
+
+                #Update balance
+                conn.execute(
+                    "UPDATE accounts SET balance=? WHERE name=?",
+                    (new_balance, expense.money_source)
+                )
+
+                #Adding expense
+                conn.execute("""
+                INSERT INTO expenses (amount, money_source, category, created_at)
+                VALUES (?, ?, ?, ?)
+                """, (
+                    expense.amount,
+                    expense.money_source,
+                    expense.category,
+                    expense.created_at
+                ))
+
+            except:
+                conn.rollback()
+                raise
+
     def delete(self, deal_id) -> None:
         with self._connect() as conn:
-            conn.execute("""DELETE FROM expenses WHERE deal_id = ?""", (deal_id,))
+            cursor = conn.execute(
+                """DELETE FROM expenses WHERE deal_id = ?""",
+                (deal_id,)
+            )
+
+            if cursor.rowcount == 0:
+                raise ExpenseNotFoundError("Expense not found")
 
     def update(self, expense: Expense) -> None:
         with self._connect() as conn:
@@ -78,7 +124,7 @@ class ExpenseRepository:
 
 class AccountRepository:
     def _connect(self):
-        return sqlite3.connect(DB_NAME)
+        return sqlite3.connect(Config.DB_NAME)
 
     def create_account(self, account: Account):
         try:
