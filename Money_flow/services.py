@@ -1,7 +1,5 @@
-from exceptions import AccountNotFoundError, DealNotFoundError
 from repositories import ExpenseRepository, AccountRepository
 from models import Expense, Account
-#from exceptions import MoneyFlowError
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,7 +13,6 @@ class ExpenseService:
         logger.info(f"Attempting to spend {amount} from {money_source} at {category}")
         expense = Expense.create(amount, money_source, category)
         self.repo.spend_atomic(expense)
-        print("Money spent")
         logger.info(f"Money spent successfully")
 
     def load_expenses(self):
@@ -39,14 +36,7 @@ class ExpenseService:
         if category is not None:
             expense.category = category
 
-        self.repo.update(expense)
-
-        if old_source == expense.money_source:
-            delta = old_amount - expense.amount
-            self.account_repo.update_balance(expense.money_source, delta)
-        else:
-            self.account_repo.update_balance(old_source, old_amount)
-            self.account_repo.update_balance(expense.money_source, -expense.amount)
+        self.repo.edit_atomic(expense, old_amount, old_source)
 
     def by_category(self, category):
         return [e for e in self.repo.load() if e.category == category]
@@ -69,14 +59,8 @@ class AccountService:
 
     def transfer(self, from_acc, to_acc, amount):
         logger.info(f"Transfer {amount} from {from_acc} to {to_acc}")
-        self.repo.update_balance(from_acc, -amount)
-        try:
-            self.repo.update_balance(to_acc, amount)
-            logger.info("Transfer completed")
-        except Exception:
-            logger.error("Transfer failed, rolling back", exc_info=True)
-            self.repo.update_balance(from_acc, amount)
-            raise
+        self.repo.transfer_atomic(from_acc, to_acc, amount)
+        logger.info("Transfer completed")
 
     def top_up_balance(self, name, amount):
         return self.repo.update_balance(name, amount)

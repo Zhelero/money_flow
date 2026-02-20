@@ -1,9 +1,10 @@
 from services import ExpenseService, AccountService
 from exceptions import MoneyFlowError
+from database import Database
 import logging
 
 #Создание логгера приложения
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 #Формат логов
@@ -20,9 +21,12 @@ error_handler.setLevel(logging.ERROR)
 error_handler.setFormatter(formatter)
 
 #Добавляем handlers к корневому логгеру
-logger.addHandler(app_handler)
-logger.addHandler(error_handler)
+if not logger.handlers:
+    logger.addHandler(app_handler)
+    logger.addHandler(error_handler)
 
+
+Database()
 
 service = ExpenseService()
 account_service = AccountService()
@@ -64,12 +68,13 @@ def main():
                 source = input("where does the money come from? ")
                 category = input("What is the category? ")
                 service.spend(amount, source, category)
+                print("Money spent")
 
             elif task == "list":
                 expenses = service.load_expenses()
                 for expense in expenses:
                     print(
-                        f'{expense.deal_id}|{expense.amount} {expense.category} {expense.money_source}|{expense.created_at}')
+                        f'{expense.deal_id} || {expense.amount} - {expense.category} - {expense.money_source} | {expense.created_at}')
 
             elif task == "delete":
                 service.delete(int(input("What is the deal's id? ")))
@@ -93,7 +98,7 @@ def main():
                 expenses = service.by_category(category)
 
                 for e in expenses:
-                    print(f"{e.deal_id} | {e.amount} | {e.created_at}")
+                    print(f"{e.deal_id} || {e.amount} | {e.created_at}")
 
             elif task == "total":
                 category = input("Category (enter for all): ").strip()
