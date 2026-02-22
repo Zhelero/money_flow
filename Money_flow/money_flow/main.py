@@ -1,6 +1,7 @@
-from services import ExpenseService, AccountService
-from exceptions import MoneyFlowError
-from database import Database
+from .services import ExpenseService, AccountService
+from .exceptions import MoneyFlowError
+from .database import Database
+from .config import config
 import logging
 
 #Создание логгера приложения
@@ -72,9 +73,12 @@ def main():
 
             elif task == "list":
                 expenses = service.load_expenses()
-                for expense in expenses:
-                    print(
-                        f'{expense.deal_id} || {expense.amount} - {expense.category} - {expense.money_source} | {expense.created_at}')
+                if not expenses:
+                    print("No expenses yet")
+                else:
+                    for expense in expenses:
+                        print(
+                            f'{expense.deal_id} || {expense.amount} - {expense.category} - {expense.money_source} | {expense.created_at}')
 
             elif task == "delete":
                 service.delete(int(input("What is the deal's id? ")))
@@ -108,6 +112,20 @@ def main():
 
             elif task == "exit":
                 break
+
+            elif task == "__reset__":
+                if not config.DEBUG:
+                    print("Command not available")
+                    continue
+
+                confirm = input("Are you sure? Type YES to confirm: ")
+                if confirm == "YES":
+                    Database().reset()
+                    logger.warning("Database reset performed")
+                    print("Database cleared")
+
+            else:
+                print("Unknown command")
 
         except ValueError:
             logger.warning("Invalid number format entered by user")

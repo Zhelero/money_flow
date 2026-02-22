@@ -1,5 +1,5 @@
-from repositories import ExpenseRepository, AccountRepository
-from models import Expense, Account
+from .repositories import ExpenseRepository, AccountRepository
+from .models import Expense, Account
 import logging
 
 logger = logging.getLogger(__name__)

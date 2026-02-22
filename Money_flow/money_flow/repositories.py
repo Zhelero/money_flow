@@ -1,12 +1,13 @@
-from models import Expense, Account
-from exceptions import (AccountNotFoundError, NotEnoughMoneyError, AccountAlreadyExistsError, ExpenseNotFoundError)
+from .models import Expense, Account
+from .exceptions import (AccountNotFoundError, NotEnoughMoneyError, AccountAlreadyExistsError, ExpenseNotFoundError)
+from .config import config
 import sqlite3
-from config import config
+
 
 class ExpenseRepository:
 
     def _connect(self):
-        return sqlite3.connect(config.DB_NAME)
+        return sqlite3.connect(config.DB_NAME, isolation_level=None)
 
     def load(self):
         with self._connect() as conn:
@@ -67,10 +68,30 @@ class ExpenseRepository:
 
     def delete(self, deal_id) -> None:
         with self._connect() as conn:
-            cursor = conn.execute(
-                """DELETE FROM expenses WHERE deal_id = ?""",
-                (deal_id,)
-            )
+            try:
+                cursor = conn.execute(
+                    "SELECT amount, money_source FROM expenses WHERE deal_id=?",
+                    (deal_id,)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    raise ExpenseNotFoundError("Expense not found")
+
+                amount, money_source = row
+
+                conn.execute(
+                    "UPDATE accounts SET balance = balance + ? WHERE name=?",
+                    (amount, money_source)
+                )
+
+                conn.execute(
+                    """DELETE FROM expenses WHERE deal_id = ?""",
+                    (deal_id,)
+                )
+
+            except Exception:
+                conn.rollback()
+                raise
 
             if cursor.rowcount == 0:
                 raise ExpenseNotFoundError("Expense not found")
