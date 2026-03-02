@@ -1,192 +1,230 @@
 from .models import Expense, Account
 from .exceptions import (AccountNotFoundError, NotEnoughMoneyError, AccountAlreadyExistsError, ExpenseNotFoundError)
-from .config import config
+from .database import Database
 import sqlite3
 
-
 class ExpenseRepository:
+    def __init__(self, db: Database):
+        self._db = db
 
     def _connect(self):
-        return sqlite3.connect(config.DB_NAME, isolation_level=None)
+        return self._db.connect()
 
     def load(self):
         with self._connect() as conn:
-            cursor = conn.execute('SELECT * FROM expenses')
-            rows = cursor.fetchall()
+            rows = conn.execute("SELECT * FROM expenses").fetchall()
         return [
-            Expense(deal_id=row[0], amount=row[1], money_source=row[2], category=row[3], created_at=row[4]) for row in rows
+            Expense(
+                deal_id=row["deal_id"],
+                amount=row["amount"],
+                money_source=row["money_source"],
+                category=row["category"],
+                created_at=row["created_at"],
+            )
+            for row in rows
         ]
 
     def get_by_id(self, deal_id):
         with self._connect() as conn:
             row = conn.execute(
-                'SELECT * FROM expenses WHERE deal_id=?',
+                "SELECT * FROM expenses WHERE deal_id=?",
                 (deal_id,)
             ).fetchone()
 
         if not row:
-            raise ExpenseNotFoundError("Expense not found")
+            raise ExpenseNotFoundError()
 
-        return Expense(*row)
+        return Expense(
+            deal_id=row["deal_id"],
+            amount=row["amount"],
+            money_source=row["money_source"],
+            category=row["category"],
+            created_at=row["created_at"],
+        )
+
+    def by_category(self, category):
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM expenses WHERE category=?",
+                (category,)
+            ).fetchall()
+            return [
+                Expense(
+                    deal_id=row["deal_id"],
+                    amount=row["amount"],
+                    money_source=row["money_source"],
+                    category=row["category"],
+                    created_at=row["created_at"],
+                )
+                for row in rows
+            ]
 
     def spend_atomic(self, expense: Expense):
         with self._connect() as conn:
-            try:
-                cursor = conn.execute(
-                    "SELECT balance FROM accounts WHERE name=?",
-                    (expense.money_source,)
-                )
-                row = cursor.fetchone()
+            cur = conn.cursor()
 
-                if not row:
-                    raise AccountNotFoundError("Account not found")
+            #Get balance
+            cur.execute(
+                "SELECT balance FROM accounts WHERE name=?",
+                (expense.money_source,)
+            )
+            row = cur.fetchone()
+            if not row:
+                raise AccountNotFoundError()
 
-                new_balance = row[0] - expense.amount
-                if new_balance < 0:
-                    raise NotEnoughMoneyError("Not enough money")
+            current_balance = row["balance"]
+            if current_balance < expense.amount:
+                raise NotEnoughMoneyError()
 
-                #Update balance
-                conn.execute(
-                    "UPDATE accounts SET balance=? WHERE name=?",
-                    (new_balance, expense.money_source)
-                )
+            #Write off amount
+            cur.execute(
+                "UPDATE accounts SET balance= balance - ? WHERE name=?",
+                (expense.amount, expense.money_source)
+            )
 
-                #Adding expense
-                conn.execute("""
-                INSERT INTO expenses (amount, money_source, category, created_at)
-                VALUES (?, ?, ?, ?)
-                """, (
-                    expense.amount,
-                    expense.money_source,
-                    expense.category,
-                    expense.created_at
-                ))
-
-            except:
-                conn.rollback()
-                raise
+            #Adding expense
+            cur.execute("""
+            INSERT INTO expenses (amount, money_source, category, created_at)
+            VALUES (?, ?, ?, ?)
+            """, (
+                expense.amount,
+                expense.money_source,
+                expense.category,
+                expense.created_at
+            ))
 
     def delete(self, deal_id) -> None:
         with self._connect() as conn:
-            try:
-                cursor = conn.execute(
-                    "SELECT amount, money_source FROM expenses WHERE deal_id=?",
-                    (deal_id,)
-                )
-                row = cursor.fetchone()
-                if not row:
-                    raise ExpenseNotFoundError("Expense not found")
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT amount, money_source FROM expenses WHERE deal_id=?",
+                (deal_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ExpenseNotFoundError()
 
-                amount, money_source = row
+            amount = row["amount"]
+            money_source = row["money_source"]
 
-                conn.execute(
-                    "UPDATE accounts SET balance = balance + ? WHERE name=?",
-                    (amount, money_source)
-                )
+            cur.execute(
+                "UPDATE accounts SET balance = balance + ? WHERE name=?",
+                (amount, money_source)
+            )
 
-                conn.execute(
-                    """DELETE FROM expenses WHERE deal_id = ?""",
-                    (deal_id,)
-                )
+            if cur.rowcount == 0:
+                raise AccountNotFoundError()
 
-            except Exception:
-                conn.rollback()
-                raise
+            cur.execute(
+                """DELETE FROM expenses WHERE deal_id = ?""",
+                (deal_id,)
+            )
 
-            if cursor.rowcount == 0:
-                raise ExpenseNotFoundError("Expense not found")
-
-    def edit_atomic(self, expense: Expense, old_amount: float, old_source: str) -> None:
+    def edit_atomic(
+            self,
+            deal_id: int,
+            amount: float | None = None,
+            money_source: str | None = None,
+            category: str | None = None
+    ) -> None:
         with self._connect() as conn:
-            try:
-                #Check accounts existence
-                cur = conn.execute(
-                    "SELECT balance FROM accounts WHERE name=?",
-                    (old_source,)
+            cur = conn.cursor()
+
+            # Get current operation
+            cur.execute(
+                "SELECT amount, money_source, category, created_at FROM expenses WHERE deal_id=?",
+                (deal_id,)
+            )
+            row = cur.fetchone()
+
+            if not row:
+                raise ExpenseNotFoundError()
+
+            old_amount = row["amount"]
+            old_source = row["money_source"]
+            old_category = row["category"]
+
+            #Get new values
+            new_amount = amount if amount is not None else old_amount
+            new_source = money_source if money_source is not None else old_source
+            new_category = category if category is not None else old_category
+
+            # Check existence of old account
+            cur.execute(
+                "SELECT balance FROM accounts WHERE name=?",
+                (old_source,)
+            )
+            if not cur.fetchone():
+                raise AccountNotFoundError("Old account not found")
+
+            #Check existence of new account
+            cur.execute(
+                "SELECT balance FROM accounts WHERE name=?",
+                (new_source,)
+            )
+            new_account_row = cur.fetchone()
+            if not new_account_row:
+                raise AccountNotFoundError("New account not found")
+
+            #Account doesn't change
+            if old_source == new_source:
+                diff = new_amount - old_amount
+
+                if diff > 0 and new_account_row["balance"] < diff:
+                    raise NotEnoughMoneyError()
+
+                cur.execute(
+                    "UPDATE accounts SET balance = balance - ? WHERE name=?",
+                    (diff, old_source)
                 )
-                if not cur.fetchone():
-                    raise AccountNotFoundError("Original account not found")
 
-                cur = conn.execute(
-                    "SELECT balance FROM accounts WHERE name=?",
-                    (expense.money_source,)
+            #Account change
+            else:
+                # Return old amount
+                cur.execute(
+                    "UPDATE accounts SET balance= balance + ? WHERE name=?",
+                    (old_amount, old_source)
                 )
-                if not cur.fetchone():
-                    raise AccountNotFoundError("New account not found")
 
-                #Update expense
-                conn.execute("""
-                    UPDATE expenses
-                    SET amount= ?, money_source = ?, category = ?, created_at = ?
-                    WHERE deal_id = ?
-                """, (
-                    expense.amount,
-                    expense.money_source,
-                    expense.category,
-                    expense.created_at,
-                    expense.deal_id
-                ))
+                #Check balance of new account
+                if new_account_row["balance"] < new_amount:
+                    raise NotEnoughMoneyError()
 
-                if old_source == expense.money_source:
-                    cur = conn.execute(
-                        "SELECT balance FROM accounts WHERE name=?",
-                        (expense.money_source,)
-                    )
-                    current_balance = cur.fetchone()[0]
+                #Write off new amount
+                cur.execute(
+                    "UPDATE accounts SET balance = balance - ? WHERE name=?",
+                    (new_amount, new_source)
+                )
 
-                    delta = old_amount - expense.amount
-                    new_balance = current_balance + delta
-
-                    if new_balance < 0:
-                        raise NotEnoughMoneyError("Not enough money for edit operation")
-
-                    conn.execute(
-                        "UPDATE accounts SET balance=? WHERE name=?",
-                        (new_balance, expense.money_source)
-                    )
-
-                else:
-                    #Check balance of new account
-                    cur = conn.execute(
-                        "SELECT balance FROM accounts WHERE name=?",
-                        (expense.money_source,)
-                    )
-                    new_account_balance = cur.fetchone()[0]
-
-                    if new_account_balance < expense.amount:
-                        raise NotEnoughMoneyError("Not enough money in new account")
-
-                    #Return old amount
-                    conn.execute(
-                        "UPDATE accounts SET balance = balance + ? WHERE name = ?",
-                        (old_amount,old_source)
-                    )
-
-                    #Writing off new amount
-                    conn.execute(
-                        "UPDATE accounts SET balance = balance - ? WHERE name = ?",
-                        (expense.amount, expense.money_source)
-                    )
-
-            except Exception:
-                conn.rollback()
-                raise
+            #Update expense
+            cur.execute("""
+                UPDATE expenses
+                SET amount=?, money_source=?, category=?
+                WHERE deal_id=?
+            """, (
+                new_amount,
+                new_source,
+                new_category,
+                deal_id
+            ))
 
     def total(self, category=None):
         with self._connect() as conn:
             if category:
-                cursor = conn.execute("SELECT SUM(amount) FROM expenses WHERE category = ?", (category,)
+                cur = conn.execute("SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE category = ?", (category,)
                 )
             else:
-                cursor = conn.execute("SELECT SUM(amount) FROM expenses")
+                cur = conn.execute("SELECT COALESCE(SUM(amount), 0) AS total FROM expenses")
 
-            result = cursor.fetchone()[0]
-            return result if result is not None else 0
+            return cur.fetchone()["total"]
 
 
 class AccountRepository:
+    def __init__(self, db: Database):
+        self._db = db
+
     def _connect(self):
-        return sqlite3.connect(config.DB_NAME)
+        return self._db.connect()
 
     def create_account(self, account: Account):
         try:
@@ -196,12 +234,18 @@ class AccountRepository:
                 VALUES (?, ?)
                 """, (account.name, account.balance))
         except sqlite3.IntegrityError:
-            raise AccountAlreadyExistsError("Account already exists. Choose a different name.")
+            raise AccountAlreadyExistsError()
 
     def get_accounts(self):
         with self._connect() as conn:
             rows = conn.execute("SELECT * FROM accounts").fetchall()
-            return [Account(*row) for row in rows]
+            return [
+                Account(
+                    account_id=row["account_id"],
+                    name=row["name"],
+                    balance=row["balance"]
+                ) for row in rows
+            ]
 
     def update_balance(self, name, delta):
         with self._connect() as conn:
@@ -211,11 +255,11 @@ class AccountRepository:
 
             row = cur.fetchone()
             if not row:
-                raise AccountNotFoundError('Account not found')
+                raise AccountNotFoundError()
 
-            new_balance = row[0] + delta
+            new_balance = row["balance"] + delta
             if new_balance < 0:
-                raise NotEnoughMoneyError("Not enough money")
+                raise NotEnoughMoneyError()
 
             conn.execute("""
                             UPDATE accounts 
@@ -223,42 +267,39 @@ class AccountRepository:
                             WHERE name = ?
                         """, (new_balance, name))
 
+            return new_balance
+
     def transfer_atomic(self, from_acc: str, to_acc: str, amount: float):
         with self._connect() as conn:
-            try:
-                #Check sender
-                cur = conn.execute(
-                    "SELECT balance FROM accounts WHERE name = ?",
-                    (from_acc,)
-                )
-                from_row = cur.fetchone()
-                if not from_row:
-                    raise AccountNotFoundError('Sender account not found')
+            #Check old account
+            cur = conn.execute(
+                "SELECT balance FROM accounts WHERE name = ?",
+                (from_acc,)
+            )
+            from_row = cur.fetchone()
+            if not from_row:
+                raise AccountNotFoundError("Old account not found")
 
-                #Check receiver
-                cur = conn.execute(
-                    "SELECT balance FROM accounts WHERE name = ?",
-                    (to_acc,)
-                )
-                to_row = cur.fetchone()
-                if not to_row:
-                    raise AccountNotFoundError('Receiver account not found')
+            #Check new account
+            cur = conn.execute(
+                "SELECT balance FROM accounts WHERE name = ?",
+                (to_acc,)
+            )
+            to_row = cur.fetchone()
+            if not to_row:
+                raise AccountNotFoundError("New account not found")
 
-                if from_row[0] < amount:
-                    raise NotEnoughMoneyError("Not enough money")
+            if from_row["balance"] < amount:
+                raise NotEnoughMoneyError()
 
-                #Write off money from the account
-                conn.execute(
-                    "UPDATE accounts SET balance = balance - ? WHERE name = ?",
-                    (amount, from_acc)
-                )
+            #Write off money from the account
+            conn.execute(
+                "UPDATE accounts SET balance = balance - ? WHERE name = ?",
+                (amount, from_acc)
+            )
 
-                #Adding money to account
-                conn.execute(
-                    "UPDATE accounts SET balance = balance + ? WHERE name = ?",
-                    (amount, to_acc)
-                )
-
-            except Exception:
-                conn.rollback()
-                raise
+            #Adding money to account
+            conn.execute(
+                "UPDATE accounts SET balance = balance + ? WHERE name = ?",
+                (amount, to_acc)
+            )
