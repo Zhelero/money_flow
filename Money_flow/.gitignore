@@ -1,0 +1,21 @@
+# Environment
+.env
+
+# Database
+*.db
+
+# Logs
+*.log
+
+# Cache
+__pycache__/
+*.pyc
+
+# Tests artifacts
+.coverage
+
+# IDE
+.idea/
+
+# Archives
+*.zip
